@@ -31,7 +31,7 @@ func SendDingMsg(msg string) {
 	}
 
 	client := &http.Client{
-		Timeout:time.Duration(10 * time.Second),
+		Timeout: time.Duration(10 * time.Second),
 	}
 	//设置请求头
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -60,7 +60,7 @@ func getRandomString(l int) string {
 	}
 	return string(result)
 }
-func check(pushdata puthFields) {
+func check(pushdata *puthFields, today *int) {
 	v, _ := mem.VirtualMemory()
 	percent, _ := cpu.Percent(time.Second, false)
 
@@ -77,6 +77,13 @@ func check(pushdata puthFields) {
 	}
 	str = fmt.Sprintf("错误代码: %s \n", getRandomString(10)) + str
 	osWrite(str)
+
+	pushdata.todayRunCount++
+	pushdata.allRunCount++
+	if *today != time.Now().Day() {
+		*today = time.Now().Day()
+		pushdata.todayRunCount = 1
+	}
 
 	if cpuStr != "" {
 		cmd := exec.Command("/bin/bash", "-c", "ps aux|head -1;ps auxw|sort -rn -k3|head -10|tee >> "+config.filename)
@@ -119,13 +126,7 @@ func push(pushdata puthFields) {
 	for {
 		<-rateLimiter
 		go func() {
-			pushdata.todayRunCount++
-			pushdata.allRunCount++
-			if today != time.Now().Day() {
-				today = time.Now().Day()
-				pushdata.todayRunCount = 1
-			}
-			check(pushdata)
+			check(&pushdata, &today)
 		}()
 	}
 }
