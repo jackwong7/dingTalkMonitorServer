@@ -25,22 +25,25 @@ func SendDingMsg(msg string) {
 	//创建一个请求
 	req, err := http.NewRequest("POST", config.webHook, strings.NewReader(content))
 	if err != nil {
-		//handle error
+		// handle error
 		log.Print(err)
+		return
 	}
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout:time.Duration(10 * time.Second),
+	}
 	//设置请求头
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	//发送请求
 	resp, err := client.Do(req)
-	//关闭请求
-	defer resp.Body.Close()
-
 	if err != nil {
 		// handle error
 		log.Print(err)
+		return
 	}
+	//关闭请求
+	defer resp.Body.Close()
 	if resp.StatusCode == 200 {
 		log.Printf("机器人消息发送成功，发送内容：\n%s", msg)
 	} else {
