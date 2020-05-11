@@ -7,7 +7,7 @@ Linux server CPU / memory monitoring script, over threshold automatic pin push a
 - 每当钉钉群发出通知后，会生成一条内存/CPU top10的记录到日志文件，也支持在线查看
 - 日志文件达到10MB会自动清空，在线查询仅支持近100条
 
-
+![推送Demo](https://github.com/jackwong7/dingTalkMonitorServer/blob/master/images/demo1.png?raw=true "推送样例")
 
 ## Advanced Usage
 Support command
