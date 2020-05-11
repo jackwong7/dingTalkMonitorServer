@@ -11,6 +11,7 @@ Support command
 Usage: xxxxxx [COMMAND]
 
 SUPPORT COMMANDS:
+        -help           get helps
         -cpu            CPU usage alarm, default 50% (default 50)
         -mem            Memory remaining available alarm, default 500m (default 500)
         -i              Monitoring interval, The default is 5 seconds (default 5)
