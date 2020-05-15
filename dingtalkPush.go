@@ -1,9 +1,6 @@
 package main
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"github.com/shirou/gopsutil/mem"
@@ -12,26 +9,16 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
+	"server/dingtalk"
 	"strconv"
 	"strings"
 	"time"
 )
 
-func computeHmacSha256(message string, secret string) string {
-
-	stringToSign := message + "\n" + secret
-
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(stringToSign))
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
-}
-
-func SendDingMsg(msg, randstr string) {
-	//请求地址模板
-	content := `{
+func getDingTalkContents(msg, randstr string) string {
+	return `{
 	   "actionCard": {
 	       "title": "服务器负载过高",
 	       "text": "` + msg + `",
@@ -45,43 +32,6 @@ func SendDingMsg(msg, randstr string) {
 	   },
 	   "msgtype": "actionCard"
 	}`
-	timestamp := strconv.FormatInt(time.Now().UnixNano()/1e6, 10)
-	secret := url.QueryEscape(computeHmacSha256(timestamp, "SEC49437da69b1cba497ce34bca54b91d8766c13440d3f0462bc3c5c7bb43275a5c"))
-	webhook := fmt.Sprintf(
-		"https://oapi.dingtalk.com/robot/send?access_token=%s"+
-			"&timestamp=%s"+
-			"&sign=%s",
-		config.token,
-		timestamp,
-		secret)
-	//创建一个请求
-	req, err := http.NewRequest("POST", webhook, strings.NewReader(content))
-
-	if err != nil {
-		// handle error
-		log.Print(err)
-		return
-	}
-
-	client := &http.Client{
-		Timeout: time.Duration(10 * time.Second),
-	}
-	//设置请求头
-	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	//发送请求
-	resp, err := client.Do(req)
-	if err != nil {
-		// handle error
-		log.Print(err)
-	}
-	//关闭请求
-	defer resp.Body.Close()
-
-	if resp.StatusCode == 200 {
-		log.Printf("机器人消息发送成功，发送内容：\n%s", msg)
-	} else {
-		log.Printf("机器人消息发送失败，http code：%d", resp.StatusCode)
-	}
 }
 func getRandomString(l int) string {
 	str := "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -149,13 +99,15 @@ func check(pushdata *puthFields, today *int) {
 	str = str + "######" + fmt.Sprintf(" 警告代码: %s \n", randstr)
 	writeStr := str
 	if cpuStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "ps aux|head -1;ps auxw|sort -rn -k3|head -10")
+		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -10")
+		//cmd := exec.Command("/bin/bash", "-c", "top -b -o +%CPU | head -n 17")
 		if output, err := cmd.Output(); err == nil {
 			writeStr = writeStr + "CPU TOP10: \n" + string(output)
 		}
 	}
 	if memStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "ps aux|head -1;ps auxw|sort -rn -k4|head -10")
+		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head -10")
+		//cmd := exec.Command("/bin/bash", "-c", "top -b -o +%MEM | head -n 17")
 		if output, err := cmd.Output(); err == nil {
 			if cpuStr != "" {
 				writeStr = writeStr + "\n"
@@ -185,7 +137,7 @@ func check(pushdata *puthFields, today *int) {
 		pushdata.allRunCount,
 		time.Now().Format("2006-01-02 15:04:05"),
 		pushdata.hostname)
-	SendDingMsg(str, randstr)
+	dingtalk.SendDingMsg(getDingTalkContents(str, randstr), config.token, config.secret)
 }
 
 type puthFields struct {
