@@ -1,0 +1,9 @@
+{
+  "token": "",
+  "secret": "",
+  "port": "7000",
+  "filename": "error.txt",
+  "interval": 5,
+  "cpuUseRate": 0,
+  "memUsable": 500
+}

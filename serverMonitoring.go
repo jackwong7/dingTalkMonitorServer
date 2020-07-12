@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/fatih/color"
+	"github.com/golang/glog"
 	"github.com/jackwong7/dingtalk"
+	"github.com/jackwong7/ipinfo"
 	"github.com/shirou/gopsutil/mem"
 	"io/ioutil"
 	"log"
@@ -17,6 +22,76 @@ import (
 	"time"
 )
 
+const configFileName string = "config.json"
+
+//config.json
+type ServerConfig struct {
+	Token      string  `json:"token"`
+	Secret     string  `json:"secret"`
+	Port       string  `json:"port"`
+	Filename   string  `json:"filename"`
+	Interval   int     `json:"interval"`
+	CPUUseRate float64 `json:"cpuUseRate"`
+	MemUsable  uint64  `json:"memUsable"`
+}
+
+var config ServerConfig
+
+//Parse config file
+func parseConfig() {
+	conf, err := ioutil.ReadFile(configFileName)
+	checkErr("read config file error: ", err, Error)
+
+	var lines []string
+	for _, line := range strings.Split(strings.Replace(string(conf), "\r\n", "\n", -1), "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "//") && line != "" {
+			lines = append(lines, line)
+		}
+	}
+
+	var b bytes.Buffer
+	for i, line := range lines {
+		if len(lines)-1 > i {
+			nextLine := lines[i+1]
+			if nextLine == "]" || nextLine == "]," || nextLine == "}" || nextLine == "}," {
+				if strings.HasSuffix(line, ",") {
+					line = strings.TrimSuffix(line, ",")
+				}
+			}
+		}
+		b.WriteString(line)
+	}
+
+	err = json.Unmarshal(b.Bytes(), &config)
+	checkErr("parse config file error: ", err, Error)
+}
+
+//custom log level
+const (
+	Info = iota
+	Warning
+	Debug
+	Error
+)
+
+//CheckErr checks given error
+func checkErr(messge string, err error, level int) {
+	if err != nil {
+		switch level {
+		case Info:
+			color.Set(color.FgGreen)
+			defer color.Unset()
+			glog.Infoln(messge, err)
+		case Warning, Debug:
+			glog.Infoln(messge, err)
+			glog.Infoln(messge, err)
+		case Error:
+			glog.Fatalln(messge, err)
+		}
+	}
+}
+
 func getDingTalkContents(msg, randstr string) string {
 	return `{
 	   "actionCard": {
@@ -26,7 +101,7 @@ func getDingTalkContents(msg, randstr string) string {
 	       "btns": [
 	           {
 	               "title": "查看详情",
-	               "actionURL": "http://` + ip + `:` + config.port + `/log/` + randstr + `"
+	               "actionURL": "http://` + ipJsonObj.IP + `:` + config.Port + `/log/` + randstr + `"
 	           },
 	       ]
 	   },
@@ -85,11 +160,11 @@ func check(pushdata *puthFields, today *int) {
 	percent, _, _ := getCpuUsageInfo()
 
 	memStr, cpuStr := "", ""
-	if v.Total-v.Used < config.memUsable<<20 {
-		memStr = fmt.Sprintf("##### 可用内存不足 %dMB\n", config.memUsable)
+	if v.Total-v.Used < config.MemUsable<<20 {
+		memStr = fmt.Sprintf("##### 可用内存不足 %dMB\n", config.MemUsable)
 	}
-	if percent > config.cpuUseRate {
-		cpuStr = fmt.Sprintf("##### CPU使用率超过 %.f%%\n", config.cpuUseRate)
+	if percent > config.CPUUseRate {
+		cpuStr = fmt.Sprintf("##### CPU使用率超过 %.f%%\n", config.CPUUseRate)
 	}
 	str := memStr + cpuStr
 	if str == "" {
@@ -124,7 +199,7 @@ func check(pushdata *puthFields, today *int) {
 		pushdata.todayRunCount = 1
 	}
 
-	str = str + fmt.Sprintf("###### 日志文件: %s \n", config.filename)
+	str = str + fmt.Sprintf("###### 日志文件: %s \n", config.Filename)
 
 	str = str + fmt.Sprintf("###### 总内存: %v MB, 已使用: %v MB\n"+
 		"###### 内存使用率: %.f%%  CPU使用率: %.f%% \n"+
@@ -132,28 +207,25 @@ func check(pushdata *puthFields, today *int) {
 		"###### 警告发生时间: %s \n"+
 		"###### 服务器名称: %s \n",
 		v.Total>>20, v.Used>>20, v.UsedPercent,
-		(percent),
+		percent,
 		pushdata.todayRunCount,
 		pushdata.allRunCount,
 		time.Now().Format("2006-01-02 15:04:05"),
 		pushdata.hostname)
-	dingtalk.SendDingMsg(getDingTalkContents(str, randstr), config.token, config.secret)
+	dingtalk.SendDingMsg(getDingTalkContents(str, randstr), config.Token, config.Secret)
 }
 
 type puthFields struct {
 	hostname      string
 	todayRunCount uint64
 	allRunCount   uint64
-	ip            string
 }
 
-var config = getConfig()
-var rateLimiter = time.Tick(time.Duration(config.interval) * time.Second)
-var ip string
+var ipJsonObj ipinfo.IpJson
 var out chan map[string]string
 
 func push(pushdata puthFields) {
-
+	rateLimiter := time.Tick(time.Duration(config.Interval) * time.Second)
 	today := time.Now().Day()
 	for {
 		<-rateLimiter
@@ -163,45 +235,48 @@ func push(pushdata puthFields) {
 	}
 }
 
-type runConfig struct {
-	memUsable  uint64
-	cpuUseRate float64
-	interval   int
-	token      string
-	secret     string
-	filename   string
-	port       string
-}
-
-func getConfig() runConfig {
-	var config runConfig
-	flag.StringVar(&config.token, "token", "", "机器人token必填")
-	flag.StringVar(&config.secret, "secret", "", "机器人secret必填")
-	flag.StringVar(&config.port, "port", "7000", "出错后http查看错误日志端口,默认7000")
-	flag.StringVar(&config.filename, "file", `error.txt`, "警告日志路径,默认为./error.txt")
-	flag.IntVar(&config.interval, "i", 5, "脚本每多久执行一次,默认5秒")
-	flag.Float64Var(&config.cpuUseRate, "cpu", 50, "CPU使用率超过多少报警,默认50%")
-	flag.Uint64Var(&config.memUsable, "mem", 500, "内存不足多少报警,默认500M")
+func getConfig() {
+	flag.StringVar(&config.Token, "token", config.Token, "机器人token必填")
+	flag.StringVar(&config.Secret, "secret", config.Secret, "机器人secret必填")
+	flag.StringVar(&config.Port, "port", config.Port, "出错后http查看错误日志端口,默认7000")
+	flag.StringVar(&config.Filename, "file", config.Filename, "警告日志路径,默认为./error.txt")
+	flag.IntVar(&config.Interval, "i", config.Interval, "脚本每多久执行一次,默认5秒")
+	flag.Float64Var(&config.CPUUseRate, "cpu", config.CPUUseRate, "CPU使用率超过多少报警,默认50%")
+	flag.Uint64Var(&config.MemUsable, "mem", config.MemUsable, "内存不足多少报警,默认500M")
 	flag.Parse()
-	if config.token == "" {
+	if config.Token == "" {
 		panic("机器人token必填")
 	}
-	if config.secret == "" {
+	if config.Secret == "" {
 		panic("机器人secret必填")
 	}
-	return config
+	if config.Port == "" {
+		config.Port = "7000"
+	}
+	if config.Filename == "" {
+		config.Filename = "error.txt"
+	}
+	if config.Interval == 0 {
+		config.Interval = 5
+	}
+	if config.CPUUseRate == 0 {
+		config.CPUUseRate = 50
+	}
+	if config.MemUsable == 0 {
+		config.MemUsable = 500
+	}
 }
 func osWrite(contents, randstr string) error {
-	if fileInfo, err := os.Stat(config.filename); err == nil && fileInfo.Size()>>20 >= 10 {
-		os.Truncate(config.filename, 0)
+	if fileInfo, err := os.Stat(config.Filename); err == nil && fileInfo.Size()>>20 >= 10 {
+		os.Truncate(config.Filename, 0)
 	}
 
-	fd, err := os.OpenFile(config.filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+	fd, err := os.OpenFile(config.Filename, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
 	defer fd.Close()
 	if err != nil {
 		switch {
 		case os.IsNotExist(err):
-			o, err := os.Create(config.filename)
+			o, err := os.Create(config.Filename)
 			if err != nil {
 				return err
 			}
@@ -252,25 +327,14 @@ func errWrapper(handle appHandle) func(http.ResponseWriter, *http.Request) {
 	}
 }
 
-func get_external() {
-	timeout := time.Duration(5 * time.Second)
-	client := http.Client{
-		Timeout: timeout,
-	}
-	resp, err := client.Get("http://myexternalip.com/raw")
-	defer resp.Body.Close()
-	if err == nil {
-		if body, err := ioutil.ReadAll(resp.Body); err == nil {
-			ip = string(body)
-		}
-	}
-}
 func main() {
-	get_external()
+	parseConfig()
+	getConfig()
+	ipJsonObj = ipinfo.GetIp()
 	out = handle.CreateErrDetailChan()
 	go func() {
 		http.HandleFunc("/log/", errWrapper(handle.HandleFileList))
-		err := http.ListenAndServe(":"+config.port, nil)
+		err := http.ListenAndServe(":"+config.Port, nil)
 		if err != nil {
 			panic(err)
 		}
