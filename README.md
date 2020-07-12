@@ -6,6 +6,7 @@ Linux server CPU / memory monitoring script, over threshold automatic pin push a
 - 机器人设置仅支持加签，不支持ip和关键词推送
 - 每当钉钉群发出通知后，会生成一条内存/CPU top10的记录到日志文件，也支持在线查看
 - 日志文件达到10MB会自动清空，在线查询仅支持近100条
+- V1.3更新支持配置 config.json文件, 命令参数高于文件参数 config.json
 
 ![推送Demo](https://github.com/jackwong7/dingTalkMonitorServer/blob/master/images/demo1.png?raw=true "推送样例")
 
@@ -24,3 +25,24 @@ SUPPORT COMMANDS:
   -secret string    机器人secret必填
   -token string     机器人token必填
 ```
+
+
+
+V1.3 updated
+
+You can configuration config.json file
+
+like this:
+
+```json
+{
+  "token": "input your dingtalk token",
+  "secret": "input your dingtalk secret",
+  "port": "7000",
+  "filename": "error.txt",
+  "interval": 5,
+  "cpuUseRate": 0,
+  "memUsable": 500
+}
+```
+
