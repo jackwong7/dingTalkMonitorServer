@@ -1,9 +1,11 @@
 {
-  "token": "",
-  "secret": "",
+  "dingtalkToken": "",
+  "dingtalkSecret": "",
+  "telegramToken": "",
+  "telegramGroupId": 0,
   "port": "7000",
   "filename": "error.txt",
   "interval": 5,
-  "cpuUseRate": 0,
+  "cpuUseRate": 50,
   "memUsable": 500
 }

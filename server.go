@@ -3,12 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"github.com/fatih/color"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/golang/glog"
 	"github.com/jackwong7/dingtalk"
 	"github.com/jackwong7/ipinfo"
+	"github.com/jackwong7/telegrampush"
 	"github.com/shirou/gopsutil/mem"
 	"io/ioutil"
 	"log"
@@ -26,16 +27,21 @@ const configFileName string = "config.json"
 
 //config.json
 type ServerConfig struct {
-	Token      string  `json:"token"`
-	Secret     string  `json:"secret"`
-	Port       string  `json:"port"`
-	Filename   string  `json:"filename"`
-	Interval   int     `json:"interval"`
-	CPUUseRate float64 `json:"cpuUseRate"`
-	MemUsable  uint64  `json:"memUsable"`
+	DingtalkToken   string  `json:"dingtalkToken"`
+	DingtalkSecret  string  `json:"dingtalkSecret"`
+	TelegramToken   string  `json:"telegramToken"`
+	TelegramGroupID int64   `json:"telegramGroupId"`
+	Port            string  `json:"port"`
+	Filename        string  `json:"filename"`
+	Interval        int     `json:"interval"`
+	CPUUseRate      float64 `json:"cpuUseRate"`
+	MemUsable       uint64  `json:"memUsable"`
 }
 
-var config ServerConfig
+var (
+	config      ServerConfig
+	telegramBot *tgbotapi.BotAPI
+)
 
 //Parse config file
 func parseConfig() {
@@ -107,6 +113,19 @@ func getDingTalkContents(msg, randstr string) string {
 	   },
 	   "msgtype": "actionCard"
 	}`
+}
+
+func getTelegramContents(msg, randstr string) tgbotapi.MessageConfig {
+	msg = strings.ReplaceAll(msg, "###### ", "")
+	msg = strings.ReplaceAll(msg, "##### ", "")
+	telegramMsg := tgbotapi.NewMessage(config.TelegramGroupID, fmt.Sprintf("服务器负载过高\n%s", msg))
+	var numericKeyboard = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonURL("查看详情", `http://`+ipJsonObj.IP+`:`+config.Port+`/log/`+randstr),
+		),
+	)
+	telegramMsg.ReplyMarkup = numericKeyboard
+	return telegramMsg
 }
 func getRandomString(l int) string {
 	str := "0123456789abcdefghijklmnopqrstuvwxyz"
@@ -212,7 +231,12 @@ func check(pushdata *puthFields, today *int) {
 		pushdata.allRunCount,
 		time.Now().Format("2006-01-02 15:04:05"),
 		pushdata.hostname)
-	dingtalk.SendDingMsg(getDingTalkContents(str, randstr), config.Token, config.Secret)
+	if config.DingtalkToken != "" && config.DingtalkSecret != "" {
+		dingtalk.SendDingMsg(getDingTalkContents(str, randstr), config.DingtalkToken, config.DingtalkSecret)
+	}
+	if config.TelegramGroupID != 0 && config.TelegramToken != "" {
+		telegramBot.Send(getTelegramContents(str, randstr))
+	}
 }
 
 type puthFields struct {
@@ -235,37 +259,6 @@ func push(pushdata puthFields) {
 	}
 }
 
-func getConfig() {
-	flag.StringVar(&config.Token, "token", config.Token, "机器人token必填")
-	flag.StringVar(&config.Secret, "secret", config.Secret, "机器人secret必填")
-	flag.StringVar(&config.Port, "port", config.Port, "出错后http查看错误日志端口,默认7000")
-	flag.StringVar(&config.Filename, "file", config.Filename, "警告日志路径,默认为./error.txt")
-	flag.IntVar(&config.Interval, "i", config.Interval, "脚本每多久执行一次,默认5秒")
-	flag.Float64Var(&config.CPUUseRate, "cpu", config.CPUUseRate, "CPU使用率超过多少报警,默认50%")
-	flag.Uint64Var(&config.MemUsable, "mem", config.MemUsable, "内存不足多少报警,默认500M")
-	flag.Parse()
-	if config.Token == "" {
-		panic("机器人token必填")
-	}
-	if config.Secret == "" {
-		panic("机器人secret必填")
-	}
-	if config.Port == "" {
-		config.Port = "7000"
-	}
-	if config.Filename == "" {
-		config.Filename = "error.txt"
-	}
-	if config.Interval == 0 {
-		config.Interval = 5
-	}
-	if config.CPUUseRate == 0 {
-		config.CPUUseRate = 50
-	}
-	if config.MemUsable == 0 {
-		config.MemUsable = 500
-	}
-}
 func osWrite(contents, randstr string) error {
 	if fileInfo, err := os.Stat(config.Filename); err == nil && fileInfo.Size()>>20 >= 10 {
 		os.Truncate(config.Filename, 0)
@@ -329,7 +322,7 @@ func errWrapper(handle appHandle) func(http.ResponseWriter, *http.Request) {
 
 func main() {
 	parseConfig()
-	getConfig()
+	telegramBot, _ = telegram.GetBot(config.TelegramToken)
 	ipJsonObj = ipinfo.GetIp()
 	out = handle.CreateErrDetailChan()
 	go func() {
