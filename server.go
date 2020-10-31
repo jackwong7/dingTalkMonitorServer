@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"github.com/fatih/color"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
@@ -23,7 +24,7 @@ import (
 	"time"
 )
 
-const configFileName string = "config.json"
+var configFileName string
 
 //config.json
 type ServerConfig struct {
@@ -45,6 +46,8 @@ var (
 
 //Parse config file
 func parseConfig() {
+	flag.StringVar(&configFileName, "config", "config.json", "配置文件,默认为./config.json")
+	flag.Parse()
 	conf, err := ioutil.ReadFile(configFileName)
 	checkErr("read config file error: ", err, Error)
 
