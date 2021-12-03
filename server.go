@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -10,7 +11,8 @@ import (
 	"github.com/golang/glog"
 	"github.com/jackwong7/dingtalk"
 	"github.com/jackwong7/ipinfo"
-	"github.com/jackwong7/telegrampush"
+	telegram "github.com/jackwong7/telegrampush"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/shirou/gopsutil/mem"
 	"io/ioutil"
 	"log"
@@ -42,6 +44,7 @@ type ServerConfig struct {
 var (
 	config      ServerConfig
 	telegramBot *tgbotapi.BotAPI
+	db *sql.DB
 )
 
 //Parse config file
@@ -177,7 +180,7 @@ func getCpuUsageInfo() (usage, busy, total float64) {
 	return cpuUsage, totalTicks - idleTicks, totalTicks
 	//fmt.Printf("CPU usage is %f%% [busy: %f, total: %f]\n", cpuUsage, totalTicks-idleTicks, totalTicks)
 }
-func check(pushdata *puthFields, today *int) {
+func check(pushdata *puthFields) {
 	v, _ := mem.VirtualMemory()
 	percent, _, _ := getCpuUsageInfo()
 
@@ -214,12 +217,7 @@ func check(pushdata *puthFields, today *int) {
 	}
 	osWrite(writeStr, randstr)
 
-	pushdata.todayRunCount++
-	pushdata.allRunCount++
-	if *today != time.Now().Day() {
-		*today = time.Now().Day()
-		pushdata.todayRunCount = 1
-	}
+	flushErrorToDB(db)
 
 	str = str + fmt.Sprintf("###### 日志文件: %s \n", config.Filename)
 
@@ -230,8 +228,8 @@ func check(pushdata *puthFields, today *int) {
 		"###### 服务器名称: %s \n",
 		v.Total>>20, v.Used>>20, v.UsedPercent,
 		percent,
-		pushdata.todayRunCount,
-		pushdata.allRunCount,
+		pushdata.errorCountData.todayCount,
+		pushdata.errorCountData.totalCount,
 		time.Now().Format("2006-01-02 15:04:05"),
 		pushdata.hostname)
 	if config.DingtalkToken != "" && config.DingtalkSecret != "" {
@@ -244,8 +242,7 @@ func check(pushdata *puthFields, today *int) {
 
 type puthFields struct {
 	hostname      string
-	todayRunCount uint64
-	allRunCount   uint64
+	errorCountData *errorCount
 }
 
 var ipJsonObj ipinfo.IpJson
@@ -253,11 +250,10 @@ var out chan map[string]string
 
 func push(pushdata puthFields) {
 	rateLimiter := time.Tick(time.Duration(config.Interval) * time.Second)
-	today := time.Now().Day()
 	for {
 		<-rateLimiter
 		go func() {
-			check(&pushdata, &today)
+			check(&pushdata)
 		}()
 	}
 }
@@ -322,9 +318,74 @@ func errWrapper(handle appHandle) func(http.ResponseWriter, *http.Request) {
 		}
 	}
 }
+func initDB() {
+	db,_ = sql.Open("sqlite3","./monitor.db")
+	statement,_:=db.Prepare(`CREATE TABLE IF NOT EXISTS
+		statistics(
+		id integer primary key autoincrement,
+		name varchar(20) not null,
+		total_count bigint default 0,
+		today_count int default 0,
+		today_date int not null,
+		created_at DATE )`)
+	statement.Exec()
+	initRecords(db)
+}
 
+func initRecords(db2 *sql.DB) {
+	//q,_ := db2.Prepare("select exists (select count(1) from statistics where name = 'error_count')")
+	row:= db2.QueryRow("select count(1) as count from statistics where name = 'error_count'")
+	var count int
+	row.Scan(&count)
+	if count == 0{
+		statement,_:=db2.Prepare("insert into statistics(name,today_date) values (?,?)")
+		aa,_:=statement.Exec("error_count","20210703")
+		fmt.Println(aa)
+	}
+}
+type errorCount struct {
+	id int64
+	name string
+	totalCount int64
+	todayCount int64
+	todayDate int64
+	createdAt string
+}
+var errorCountData *errorCount
+func queryErrorCount(db2 *sql.DB) *errorCount{
+	row:= db2.QueryRow("select id,name,total_count,today_count,today_date from statistics where name = 'error_count'")
+	row.Scan(&errorCountData.id,&errorCountData.name,&errorCountData.totalCount,&errorCountData.todayCount,&errorCountData.todayDate)
+	return errorCountData
+}
+func getTodayDate() int64{
+	date,_ := strconv.ParseInt(time.Now().Format("20060102"),10,64)
+	return date
+}
+func queryAndFlushTodayData(db2 *sql.DB) *errorCount{
+	errorCountData = queryErrorCount(db2)
+	todayDate := getTodayDate()
+	if errorCountData.todayDate != todayDate{
+		errorCountData.todayCount=0
+		errorCountData.todayDate=todayDate
+
+		statement,_ := db2.Prepare("update statistics set today_count=?,today_date=?")
+		statement.Exec(errorCountData.todayCount,errorCountData.todayDate)
+	}
+	return errorCountData
+}
+func flushErrorToDB(db2 *sql.DB) *errorCount{
+	queryAndFlushTodayData(db2)
+	statement,_ := db2.Prepare("update statistics set total_count=total_count+1,today_count=today_count+1")
+	statement.Exec()
+	errorCountData.totalCount=errorCountData.totalCount+1
+	errorCountData.todayCount=errorCountData.todayCount+1
+	return errorCountData
+}
 func main() {
+	initDB()
 	parseConfig()
+	errorCountData = &errorCount{}
+
 	telegramBot, _ = telegram.GetBot(config.TelegramToken)
 	ipJsonObj = ipinfo.GetIp()
 	out = handle.CreateErrDetailChan()
@@ -340,8 +401,7 @@ func main() {
 
 	pushdata := puthFields{
 		hostname:      name,
-		todayRunCount: 0,
-		allRunCount:   0,
+		errorCountData: errorCountData,
 	}
 
 	push(pushdata)
