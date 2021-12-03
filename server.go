@@ -6,14 +6,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/fatih/color"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-	"github.com/golang/glog"
-	"github.com/jackwong7/dingtalk"
-	"github.com/jackwong7/ipinfo"
-	telegram "github.com/jackwong7/telegrampush"
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/shirou/gopsutil/mem"
 	"io/ioutil"
 	"log"
 	"math/rand"
@@ -24,6 +16,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/fatih/color"
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/golang/glog"
+	"github.com/jackwong7/dingtalk"
+	"github.com/jackwong7/ipinfo"
+	telegram "github.com/jackwong7/telegrampush"
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/shirou/gopsutil/mem"
 )
 
 var configFileName string
@@ -39,18 +40,52 @@ type ServerConfig struct {
 	Interval        int     `json:"interval"`
 	CPUUseRate      float64 `json:"cpuUseRate"`
 	MemUsable       uint64  `json:"memUsable"`
+	Ip              string  `json:"ip"`
 }
+
+var ConfigSample = `
+{
+	"dingtalkToken": "",
+	"dingtalkSecret": "",
+	"telegramToken": "",
+	"telegramGroupId": 0,
+	"port": "7000",
+	"filename": "error.txt",
+	"interval": 5,
+	"cpuUseRate": 0,
+	"memUsable": 2000,
+	"ip":""
+}
+`
 
 var (
 	config      ServerConfig
 	telegramBot *tgbotapi.BotAPI
-	db *sql.DB
+	db          *sql.DB
 )
 
 //Parse config file
 func parseConfig() {
 	flag.StringVar(&configFileName, "config", "config.json", "配置文件,默认为./config.json")
 	flag.Parse()
+
+	_, err := os.Stat(configFileName)
+	if err == nil {
+		log.Println("Success to loading config!")
+	}
+
+	if os.IsNotExist(err) {
+		f, err := os.Create(configFileName)
+		if err != nil {
+			log.Println(err.Error())
+		} else {
+			log.Println("The config file was generated successfully！Please restart this program")
+			f.Write([]byte(ConfigSample))
+			os.Exit(0)
+		}
+		defer f.Close()
+	}
+
 	conf, err := ioutil.ReadFile(configFileName)
 	checkErr("read config file error: ", err, Error)
 
@@ -241,7 +276,7 @@ func check(pushdata *puthFields) {
 }
 
 type puthFields struct {
-	hostname      string
+	hostname       string
 	errorCountData *errorCount
 }
 
@@ -249,6 +284,10 @@ var ipJsonObj ipinfo.IpJson
 var out chan map[string]string
 
 func push(pushdata puthFields) {
+	//如果设置了ip，就走设置的ip
+	if config.Ip != "" {
+		ipJsonObj.IP = config.Ip
+	}
 	rateLimiter := time.Tick(time.Duration(config.Interval) * time.Second)
 	for {
 		<-rateLimiter
@@ -319,8 +358,8 @@ func errWrapper(handle appHandle) func(http.ResponseWriter, *http.Request) {
 	}
 }
 func initDB() {
-	db,_ = sql.Open("sqlite3","./monitor.db")
-	statement,_:=db.Prepare(`CREATE TABLE IF NOT EXISTS
+	db, _ = sql.Open("sqlite3", "./monitor.db")
+	statement, _ := db.Prepare(`CREATE TABLE IF NOT EXISTS
 		statistics(
 		id integer primary key autoincrement,
 		name varchar(20) not null,
@@ -334,51 +373,54 @@ func initDB() {
 
 func initRecords(db2 *sql.DB) {
 	//q,_ := db2.Prepare("select exists (select count(1) from statistics where name = 'error_count')")
-	row:= db2.QueryRow("select count(1) as count from statistics where name = 'error_count'")
+	row := db2.QueryRow("select count(1) as count from statistics where name = 'error_count'")
 	var count int
 	row.Scan(&count)
-	if count == 0{
-		statement,_:=db2.Prepare("insert into statistics(name,today_date) values (?,?)")
-		aa,_:=statement.Exec("error_count","20210703")
+	if count == 0 {
+		statement, _ := db2.Prepare("insert into statistics(name,today_date) values (?,?)")
+		aa, _ := statement.Exec("error_count", "20210703")
 		fmt.Println(aa)
 	}
 }
+
 type errorCount struct {
-	id int64
-	name string
+	id         int64
+	name       string
 	totalCount int64
 	todayCount int64
-	todayDate int64
-	createdAt string
+	todayDate  int64
+	createdAt  string
 }
+
 var errorCountData *errorCount
-func queryErrorCount(db2 *sql.DB) *errorCount{
-	row:= db2.QueryRow("select id,name,total_count,today_count,today_date from statistics where name = 'error_count'")
-	row.Scan(&errorCountData.id,&errorCountData.name,&errorCountData.totalCount,&errorCountData.todayCount,&errorCountData.todayDate)
+
+func queryErrorCount(db2 *sql.DB) *errorCount {
+	row := db2.QueryRow("select id,name,total_count,today_count,today_date from statistics where name = 'error_count'")
+	row.Scan(&errorCountData.id, &errorCountData.name, &errorCountData.totalCount, &errorCountData.todayCount, &errorCountData.todayDate)
 	return errorCountData
 }
-func getTodayDate() int64{
-	date,_ := strconv.ParseInt(time.Now().Format("20060102"),10,64)
+func getTodayDate() int64 {
+	date, _ := strconv.ParseInt(time.Now().Format("20060102"), 10, 64)
 	return date
 }
-func queryAndFlushTodayData(db2 *sql.DB) *errorCount{
+func queryAndFlushTodayData(db2 *sql.DB) *errorCount {
 	errorCountData = queryErrorCount(db2)
 	todayDate := getTodayDate()
-	if errorCountData.todayDate != todayDate{
-		errorCountData.todayCount=0
-		errorCountData.todayDate=todayDate
+	if errorCountData.todayDate != todayDate {
+		errorCountData.todayCount = 0
+		errorCountData.todayDate = todayDate
 
-		statement,_ := db2.Prepare("update statistics set today_count=?,today_date=?")
-		statement.Exec(errorCountData.todayCount,errorCountData.todayDate)
+		statement, _ := db2.Prepare("update statistics set today_count=?,today_date=?")
+		statement.Exec(errorCountData.todayCount, errorCountData.todayDate)
 	}
 	return errorCountData
 }
-func flushErrorToDB(db2 *sql.DB) *errorCount{
+func flushErrorToDB(db2 *sql.DB) *errorCount {
 	queryAndFlushTodayData(db2)
-	statement,_ := db2.Prepare("update statistics set total_count=total_count+1,today_count=today_count+1")
+	statement, _ := db2.Prepare("update statistics set total_count=total_count+1,today_count=today_count+1")
 	statement.Exec()
-	errorCountData.totalCount=errorCountData.totalCount+1
-	errorCountData.todayCount=errorCountData.todayCount+1
+	errorCountData.totalCount = errorCountData.totalCount + 1
+	errorCountData.todayCount = errorCountData.todayCount + 1
 	return errorCountData
 }
 func main() {
@@ -400,7 +442,7 @@ func main() {
 	name, _ := os.Hostname()
 
 	pushdata := puthFields{
-		hostname:      name,
+		hostname:       name,
 		errorCountData: errorCountData,
 	}
 

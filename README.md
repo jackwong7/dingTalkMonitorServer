@@ -8,9 +8,19 @@ Linux server CPU / memory monitoring script, over threshold automatic pin push a
 - 日志文件达到10MB会自动清空，在线查询仅支持近100条
 - V1.3更新支持配置 config.json文件, 命令参数高于文件参数 config.json
 - V1.4更新支持配置 电报机器人
+- V2.0历史推送统计记录到sqlite中，修改电报推送逻辑
+- V2.1新增IP配置，如果配置了IP则查看详情默认使用配置的IP进行访问，如果config.json未初始化则会自动初始化一个配置文件
 
 ![推送Demo](https://github.com/jackwong7/dingTalkMonitorServer/blob/master/images/demo1.png?raw=true "推送样例")
 
+V2.1 updated
+
+Add Ip configure, if configure u can use configured ip to visit that.
+Automatic init config.json.
+
+V2.0 updated
+
+History push count data record to sqlite
 
 V1.4 updated
 
@@ -32,7 +42,8 @@ like this:
   "filename": "error.txt",
   "interval": 5,
   "cpuUseRate": 50,
-  "memUsable": 500
+  "memUsable": 500,
+  "IP":""
 }
 ```
 
