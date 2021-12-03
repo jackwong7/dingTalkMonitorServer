@@ -43,7 +43,7 @@ like this:
   "interval": 5,
   "cpuUseRate": 50,
   "memUsable": 500,
-  "IP":""
+  "ip":""
 }
 ```
 
