@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"os"
@@ -24,7 +25,8 @@ import (
 	"github.com/jackwong7/ipinfo"
 	telegram "github.com/jackwong7/telegrampush"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/shirou/gopsutil/mem"
+	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/mem"
 )
 
 var configFileName string
@@ -178,46 +180,11 @@ func getRandomString(l int) string {
 	}
 	return string(result)
 }
-func getCPUSample() (idle, total uint64) {
-	contents, err := ioutil.ReadFile("/proc/stat")
-	if err != nil {
-		return
-	}
-	lines := strings.Split(string(contents), "\n")
-	for _, line := range lines {
-		fields := strings.Fields(line)
-		if fields[0] == "cpu" {
-			numFields := len(fields)
-			for i := 1; i < numFields; i++ {
-				val, err := strconv.ParseUint(fields[i], 10, 64)
-				if err != nil {
-					fmt.Println("Error: ", i, fields[i], err)
-				}
-				total += val // tally up all the numbers to get total ticks
-				if i == 4 {  // idle is the 5th field in the cpu line
-					idle = val
-				}
-			}
-			return
-		}
-	}
-	return
-}
-
-func getCpuUsageInfo() (usage, busy, total float64) {
-	idle0, total0 := getCPUSample()
-	time.Sleep(3 * time.Second)
-	idle1, total1 := getCPUSample()
-
-	idleTicks := float64(idle1 - idle0)
-	totalTicks := float64(total1 - total0)
-	cpuUsage := 100 * (totalTicks - idleTicks) / totalTicks
-	return cpuUsage, totalTicks - idleTicks, totalTicks
-	//fmt.Printf("CPU usage is %f%% [busy: %f, total: %f]\n", cpuUsage, totalTicks-idleTicks, totalTicks)
-}
 func check(pushdata *puthFields) {
 	v, _ := mem.VirtualMemory()
-	percent, _, _ := getCpuUsageInfo()
+
+	_percent, _ := cpu.Percent(time.Second, false)
+	percent := math.Ceil(_percent[0])
 
 	memStr, cpuStr := "", ""
 	if v.Total-v.Used < config.MemUsable<<20 {
@@ -234,15 +201,13 @@ func check(pushdata *puthFields) {
 	str = str + "######" + fmt.Sprintf(" 警告代码: %s \n", randstr)
 	writeStr := str
 	if cpuStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%cpu | head -10")
-		//cmd := exec.Command("/bin/bash", "-c", "top -b -o +%CPU | head -n 17")
+		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,%mem,%cpu,cmd --sort=-%cpu | head -10")
 		if output, err := cmd.Output(); err == nil {
 			writeStr = writeStr + "CPU TOP10: \n" + string(output)
 		}
 	}
 	if memStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,ppid,cmd,%mem,%cpu --sort=-%mem | head -10")
-		//cmd := exec.Command("/bin/bash", "-c", "top -b -o +%MEM | head -n 17")
+		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,%mem,%cpu,cmd --sort=-%mem | head -10")
 		if output, err := cmd.Output(); err == nil {
 			if cpuStr != "" {
 				writeStr = writeStr + "\n"
