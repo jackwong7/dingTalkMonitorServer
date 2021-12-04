@@ -183,8 +183,16 @@ func getRandomString(l int) string {
 func check(pushdata *puthFields) {
 	v, _ := mem.VirtualMemory()
 
-	_percent, _ := cpu.Percent(time.Second, false)
-	percent := math.Ceil(_percent[0])
+	var cpupercent float64
+
+	ps, err := cpu.Percent(time.Second, true)
+	if err == nil && len(ps) > 0 {
+		for _, v := range ps {
+			cpupercent += v
+		}
+		cpupercent /= float64(len(ps))
+	}
+	percent := math.Ceil(cpupercent)
 
 	memStr, cpuStr := "", ""
 	if v.Total-v.Used < config.MemUsable<<20 {
