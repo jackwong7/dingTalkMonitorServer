@@ -261,9 +261,11 @@ func push(pushdata puthFields) {
 	rateLimiter := time.Tick(time.Duration(config.Interval) * time.Second)
 	for {
 		<-rateLimiter
-		go func() {
-			check(&pushdata)
-		}()
+		if config.Interval < 30 && time.Now().Format("05") != "00" {
+			go func() {
+				check(&pushdata)
+			}()
+		}
 	}
 }
 
