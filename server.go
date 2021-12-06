@@ -214,12 +214,10 @@ func check(pushdata *puthFields) {
 			writeStr = writeStr + "Process Top10: \n  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND\n" + string(output)
 		}
 	}
-	if memStr != "" {
+	if memStr != "" && cpuStr == "" {
 		cmd := exec.Command("/bin/bash", "-c", "top -bcn1 -w512 | sed -n '8,18p' | sed '/top -b -c -n 1/d'")
 		if output, err := cmd.Output(); err == nil {
-			if cpuStr == "" {
-				writeStr = writeStr + "Process Top10: \n  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND\nProcess Rank: \n" + string(output)
-			}
+			writeStr = writeStr + "Process Top10: \n  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND\nProcess Rank: \n" + string(output)
 		}
 	}
 	osWrite(writeStr, randstr)
