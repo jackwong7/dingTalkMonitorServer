@@ -209,16 +209,16 @@ func check(pushdata *puthFields) {
 	str = str + "######" + fmt.Sprintf(" 警告代码: %s \n", randstr)
 	writeStr := str
 	if cpuStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "top -n 1 -b -c | head -20")
+		cmd := exec.Command("/bin/bash", "-c", "top -bcn1 -w512 | sed -n '8,18p' | sed '/top -b -c -n 1/d'")
 		if output, err := cmd.Output(); err == nil {
-			writeStr = writeStr + "Process Rank: \n" + string(output)
+			writeStr = writeStr + "Process Top10: \n  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND\n" + string(output)
 		}
 	}
 	if memStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "top -n 1 -b -c | head -20")
+		cmd := exec.Command("/bin/bash", "-c", "top -bcn1 -w512 | sed -n '8,18p' | sed '/top -b -c -n 1/d'")
 		if output, err := cmd.Output(); err == nil {
 			if cpuStr == "" {
-				writeStr = writeStr + "Process Rank: \n" + string(output)
+				writeStr = writeStr + "Process Top10: \n  PID USER      PR  NI  VIRT  RES  SHR S %CPU %MEM    TIME+  COMMAND\nProcess Rank: \n" + string(output)
 			}
 		}
 	}
