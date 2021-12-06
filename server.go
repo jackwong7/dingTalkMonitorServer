@@ -209,18 +209,17 @@ func check(pushdata *puthFields) {
 	str = str + "######" + fmt.Sprintf(" 警告代码: %s \n", randstr)
 	writeStr := str
 	if cpuStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,%mem,%cpu,cmd --sort=-%cpu | head -10")
+		cmd := exec.Command("/bin/bash", "-c", "top -n 1 -b -c | head -20")
 		if output, err := cmd.Output(); err == nil {
-			writeStr = writeStr + "CPU TOP10: \n" + string(output)
+			writeStr = writeStr + "Process Rank: \n" + string(output)
 		}
 	}
 	if memStr != "" {
-		cmd := exec.Command("/bin/bash", "-c", "ps -eo pid,%mem,%cpu,cmd --sort=-%mem | head -10")
+		cmd := exec.Command("/bin/bash", "-c", "top -n 1 -b -c | head -20")
 		if output, err := cmd.Output(); err == nil {
-			if cpuStr != "" {
-				writeStr = writeStr + "\n"
+			if cpuStr == "" {
+				writeStr = writeStr + "Process Rank: \n" + string(output)
 			}
-			writeStr = writeStr + "内存 TOP10: \n" + string(output)
 		}
 	}
 	osWrite(writeStr, randstr)
